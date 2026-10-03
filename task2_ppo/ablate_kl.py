@@ -9,11 +9,21 @@ def main():
     ap.add_argument("--config", default="configs/ppo.yaml")
     args = ap.parse_args()
     cfg = load_yaml(args.config)
-    print("KL beta conditions:", cfg["kl_values"])
-    print("Fork update budget:", cfg["fork_updates"])
-    raise NotImplementedError(
-        "TODO(student): run matched short PPO continuations from the exact same midpoint for each KL beta, then implement the requested reward/drift/entropy/length analysis."
-    )
+    kl_values = cfg["kl_values"]
+    fork_updates = cfg["fork_updates"]
+    
+    from task2_ppo.continue_train import run_ppo
+    for beta in kl_values:
+        run_name = f"kl_{beta}"
+        output_path = f"outputs/task2_ppo/{run_name}"
+        print(f"Running ablation for kl_beta={beta}, updates={fork_updates}")
+        run_ppo(
+            config_path=args.config,
+            output=output_path,
+            updates=fork_updates,
+            kl_beta=beta,
+            run_name=run_name
+        )
 
 
 if __name__ == "__main__":

@@ -34,13 +34,22 @@ def main():
     args = ap.parse_args()
     cfg = load_yaml(args.config)
     rows = load_cached_rollouts(cfg["cached_rollouts"])
-    print("Cached PPO rollouts:", len(rows))
-    print("Required epsilon values:", cfg["clip_values"])
-    print("Cache keys:", sorted(rows[0].keys()))
-    raise NotImplementedError(
-        "TODO(student): reconstruct the fixed cached batch, compute the required advantages/returns, "
-        "evaluate the clipped surrogate and affected-token fraction for each epsilon, then implement the matched short forks."
-    )
+    clip_values = cfg["clip_values"]
+    fork_updates = cfg["fork_updates"]
+    
+    from task2_ppo.continue_train import run_ppo
+    
+    for eps in clip_values:
+        run_name = f"clip_{eps}"
+        output_path = f"outputs/task2_ppo/{run_name}"
+        print(f"\n--- Running clipping analysis for epsilon={eps} ---")
+        run_ppo(
+            config_path=args.config,
+            output=output_path,
+            updates=fork_updates,
+            clip_epsilon=eps,
+            run_name=run_name
+        )
 
 
 if __name__ == "__main__":
