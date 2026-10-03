@@ -27,8 +27,19 @@ def make_collate(tokenizer, max_length):
         for row in rows:
             prompt = prompt_messages_from_preference(row)
             yc, yr = preference_responses(row)
-            chosen.append(encode_prompt_response(tokenizer, prompt, yc, max_length))
-            rejected.append(encode_prompt_response(tokenizer, prompt, yr, max_length))
+            try:
+                c_enc = encode_prompt_response(tokenizer, prompt, yc, max_length)
+                r_enc = encode_prompt_response(tokenizer, prompt, yr, max_length)
+                chosen.append(c_enc)
+                rejected.append(r_enc)
+            except ValueError as e:
+                # Filter this example if it exceeds max_length
+                continue
+        
+        # If the whole batch gets filtered out
+        if not chosen:
+            return None, None
+
         return pad_batch(tokenizer, chosen), pad_batch(tokenizer, rejected)
     return collate
 
@@ -104,6 +115,9 @@ def run_training(config_path: str, run_name: str, dataset_path: str | None = Non
     step = 0
     for epoch in range(epochs):
         for chosen_batch, rejected_batch in loader:
+            if chosen_batch is None:
+                continue
+                
             with reference_mode(model):
                 with torch.no_grad():
                     ref_chosen_logp = get_logprobs(model, chosen_batch)
