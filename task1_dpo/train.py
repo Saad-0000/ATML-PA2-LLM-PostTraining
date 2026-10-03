@@ -65,17 +65,72 @@ def prepare_dpo_run(config_path: str, dataset_path: str | None = None, beta: flo
     }
 
 
+def get_logprobs(model, batch):
+    input_ids = batch["input_ids"]
+    attention_mask = batch["attention_mask"]
+    response_mask = batch["response_mask"]
+    
+    if torch.cuda.is_available():
+        input_ids = input_ids.cuda()
+        attention_mask = attention_mask.cuda()
+        response_mask = response_mask.cuda()
+        
+    logits = model(input_ids=input_ids, attention_mask=attention_mask).logits
+    labels = input_ids[:, 1:]
+    logits = logits[:, :-1, :]
+    loss_mask = response_mask[:, 1:]
+    
+    per_token_logps = torch.gather(logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)).squeeze(2)
+    return (per_token_logps * loss_mask).sum(-1)
+
 def run_training(config_path: str, run_name: str, dataset_path: str | None = None, output_path: str | None = None, beta: float | None = None, max_examples: int | None = None):
+    from common.models import reference_mode
     bundle = prepare_dpo_run(config_path, dataset_path, beta, max_examples)
     cfg = bundle["cfg"]
     output = repo_path(output_path or cfg["standard_output"])
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    raise NotImplementedError(
-        "TODO(student): implement the DPO optimization loop, logging, gradient accumulation, "
-        "reference-policy computation, and checkpoint saving. Validate task1_dpo.dpo.dpo_loss "
-        "against the manual before trusting results."
-    )
+    model = bundle["model"]
+    optimizer = bundle["optimizer"]
+    loader = bundle["loader"]
+    beta = bundle["beta"]
+    
+    grad_acc_steps = int(cfg.get("grad_accum_steps", 1))
+    max_grad_norm = float(cfg.get("max_grad_norm", 1.0))
+    epochs = int(cfg.get("epochs", 1))
+    
+    model.train()
+    
+    step = 0
+    for epoch in range(epochs):
+        for chosen_batch, rejected_batch in loader:
+            with reference_mode(model):
+                with torch.no_grad():
+                    ref_chosen_logp = get_logprobs(model, chosen_batch)
+                    ref_rejected_logp = get_logprobs(model, rejected_batch)
+            
+            policy_chosen_logp = get_logprobs(model, chosen_batch)
+            policy_rejected_logp = get_logprobs(model, rejected_batch)
+            
+            loss, metrics = dpo_loss(
+                policy_chosen_logp,
+                policy_rejected_logp,
+                ref_chosen_logp,
+                ref_rejected_logp,
+                beta
+            )
+            
+            loss = loss / grad_acc_steps
+            loss.backward()
+            
+            step += 1
+            if step % grad_acc_steps == 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+                optimizer.step()
+                optimizer.zero_grad()
+                print(f"Epoch {epoch+1} Step {step//grad_acc_steps}, Loss: {loss.item() * grad_acc_steps:.4f}, Acc: {metrics['preference_accuracy']:.4f}")
+    
+    model.save_pretrained(output)
 
 
 def main():
