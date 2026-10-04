@@ -92,10 +92,6 @@ def load_policy(cfg: dict, adapter_path: str | None = None, trainable: bool = Fa
                 model.gradient_checkpointing_enable()
         if hasattr(model, "enable_input_require_grads"):
             model.enable_input_require_grads()
-        # Ensure trainable parameters (LoRA/head) are in float32 precision for stable AdamW updates
-        for p in model.parameters():
-            if p.requires_grad:
-                p.data = p.data.float()
     else:
         model.eval()
     return model
@@ -185,11 +181,6 @@ def load_value_model(cfg: dict, checkpoint: str, train_mode: str = "lora_head"):
     else:
         raise ValueError(f"Unknown value train_mode={train_mode!r}")
 
-    # Ensure trainable parameters (LoRA & scalar head) are in float32 precision
-    for p in model.parameters():
-        if p.requires_grad:
-            p.data = p.data.float()
-
     if torch.cuda.is_available():
         model = model.cuda()
     model.train()
@@ -230,14 +221,14 @@ def token_values(value_model, input_ids, attention_mask):
         return_dict=True,
         use_cache=False,
     )
-    hidden = outputs.hidden_states[-1].float()
+    hidden = outputs.hidden_states[-1]
     if hasattr(value_model, "score"):
         head = value_model.score
     elif hasattr(value_model, "classifier"):
         head = value_model.classifier
     else:
         raise RuntimeError("Could not locate scalar value head")
-    return head(hidden).squeeze(-1).float()
+    return head(hidden).squeeze(-1)
 
 
 def trainable_parameters(model):
