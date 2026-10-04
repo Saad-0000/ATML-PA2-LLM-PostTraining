@@ -34,12 +34,17 @@ def compute_gae(rewards, values, mask, gamma=1.0, lam=0.95):
 
 
 def shaped_rewards(task_reward, policy_logp, ref_logp, response_mask, beta_kl):
-    """Sampled-action KL shaping plus terminal learned reward."""
+    """Sampled-action KL shaping plus terminal learned reward.
+
+    task_reward: [batch]
+    policy_logp, ref_logp, response_mask: [batch, response_steps]
+    """
     rewards = -float(beta_kl) * (policy_logp - ref_logp) * response_mask
     for b in range(rewards.shape[0]):
-        valid = int(response_mask[b].sum().item())
-        if valid > 0:
-            rewards[b, valid - 1] += task_reward[b]
+        nonzero = (response_mask[b] > 0).nonzero(as_tuple=False)
+        if len(nonzero) > 0:
+            last_idx = nonzero[-1].item()
+            rewards[b, last_idx] += task_reward[b]
     return rewards
 
 
