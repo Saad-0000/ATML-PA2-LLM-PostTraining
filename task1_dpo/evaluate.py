@@ -13,13 +13,13 @@ def load_evaluation_bundle(config_path: str, adapter: str):
         "rows": read_jsonl(cfg["paths"]["dpo_standard_eval"]),
         "tokenizer": load_tokenizer(cfg["base_model"]),
         "policy": load_policy(cfg, adapter_path=adapter, trainable=False),
+        "ref_policy": load_policy(cfg, adapter_path=None, trainable=False),
         "reward": load_reward_model(cfg),
     }
 
 
 import torch
 from common.data import repo_path, encode_prompt_response, pad_batch, prompt_messages_from_preference, preference_responses, render_prompt
-from common.models import reference_mode
 import json
 
 def get_logprobs(model, batch):
@@ -40,7 +40,7 @@ def get_logprobs(model, batch):
     per_token_logps = torch.gather(logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)).squeeze(2)
     return (per_token_logps * loss_mask).sum(-1)
 
-def evaluate_preference_accuracy(policy, tokenizer, rows, max_length):
+def evaluate_preference_accuracy(policy, ref_policy, tokenizer, rows, max_length):
     chosen_correct = 0
     total = 0
     
@@ -58,9 +58,8 @@ def evaluate_preference_accuracy(policy, tokenizer, rows, max_length):
         r_batch = pad_batch(tokenizer, [r_enc])
         
         with torch.no_grad():
-            with reference_mode(policy):
-                ref_chosen_logp = get_logprobs(policy, c_batch)
-                ref_rejected_logp = get_logprobs(policy, r_batch)
+            ref_chosen_logp = get_logprobs(ref_policy, c_batch)
+            ref_rejected_logp = get_logprobs(ref_policy, r_batch)
             
             pol_chosen_logp = get_logprobs(policy, c_batch)
             pol_rejected_logp = get_logprobs(policy, r_batch)
@@ -89,7 +88,7 @@ def get_per_token_logprobs(model, batch):
     per_token_logps = torch.gather(logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)).squeeze(2)
     return per_token_logps
 
-def evaluate_generation(policy, reward_bundle, tokenizer, rows, cfg):
+def evaluate_generation(policy, ref_policy, reward_bundle, tokenizer, rows, cfg):
     reward_model, r_tokenizer = reward_bundle
     max_prompt = int(cfg.get("max_prompt_length", 256))
     max_gen = int(cfg.get("max_generation_tokens", 256))
@@ -131,7 +130,7 @@ def evaluate_generation(policy, reward_bundle, tokenizer, rows, cfg):
             score = reward_model(**rm_inputs).logits[0, 0].item()
         rewards.append(score)
         
-        # KL
+        # KL calculation comparing policy vs distinct ref_policy
         seq = outputs
         attn = torch.ones_like(seq)
         resp_mask = torch.zeros_like(seq)[:, 1:] # mask for labels
@@ -139,8 +138,7 @@ def evaluate_generation(policy, reward_bundle, tokenizer, rows, cfg):
         
         batch = {"input_ids": seq, "attention_mask": attn}
         with torch.no_grad():
-            with reference_mode(policy):
-                ref_logp = get_per_token_logprobs(policy, batch)
+            ref_logp = get_per_token_logprobs(ref_policy, batch)
             pol_logp = get_per_token_logprobs(policy, batch)
                 
             from common.metrics import sampled_kl
@@ -163,17 +161,18 @@ def main():
     bundle = load_evaluation_bundle(args.config, args.adapter)
     cfg = bundle["cfg"]
     policy = bundle["policy"]
+    ref_policy = bundle["ref_policy"]
     tokenizer = bundle["tokenizer"]
     rows = bundle["rows"]
     
     max_len = int(cfg["max_sequence_length"])
     
     print("Evaluating preference accuracy...")
-    pref_acc = evaluate_preference_accuracy(policy, tokenizer, rows, max_len)
+    pref_acc = evaluate_preference_accuracy(policy, ref_policy, tokenizer, rows, max_len)
     print(f"[{args.name}] Preference Accuracy: {pref_acc:.4f}")
     
     print("Generating completions for KL and Reward scoring...")
-    evaluate_generation(policy, bundle["reward"], tokenizer, rows, cfg)
+    evaluate_generation(policy, ref_policy, bundle["reward"], tokenizer, rows, cfg)
 
 if __name__ == "__main__":
     main()
