@@ -211,7 +211,7 @@ def run_ppo(config_path: str, output: str | None = None, updates: int | None = N
         if update_idx == 0 and verbose_diagnostics:
             print("\n=== UPDATE 1 DETAILED DIAGNOSTIC INSTRUMENTATION ===")
             print(f"Valid Response Tokens: {int(loss_mask.sum().item())}")
-            print(f"Nonzero Rewards Count: {int((rewards * loss_mask > 0).sum().item())}")
+            print(f"Nonzero Rewards Count: {int((rewards * loss_mask != 0).sum().item())}")
             print(f"Nonzero Advantages Count: {int((advantages * loss_mask != 0).sum().item())}")
             print("old_logp stats:", stats(old_logp, loss_mask))
             print("ref_logp stats:", stats(ref_logp, loss_mask))
@@ -232,9 +232,9 @@ def run_ppo(config_path: str, output: str | None = None, updates: int | None = N
         grad_norm_val = 0.0
         
         for epoch_idx in range(ppo_epochs):
-            # Capture parameters before step
-            pol_params_before = [p.clone().detach() for p in trainable_policy_params]
-            val_params_before = [p.clone().detach() for p in trainable_value_params]
+            # Capture parameters before step in float32 for high precision comparison
+            pol_params_before = [p.float().clone().detach() for p in trainable_policy_params]
+            val_params_before = [p.float().clone().detach() for p in trainable_value_params]
 
             policy_optimizer.zero_grad()
             value_optimizer.zero_grad()
@@ -256,13 +256,15 @@ def run_ppo(config_path: str, output: str | None = None, updates: int | None = N
                 # Count nonzero gradients
                 p_nonzero_grads = sum((p.grad != 0).sum().item() for p in trainable_policy_params if p.grad is not None)
                 p_total_params = sum(p.numel() for p in trainable_policy_params)
+                v_nonzero_grads = sum((p.grad != 0).sum().item() for p in trainable_value_params if p.grad is not None)
+                v_total_params = sum(p.numel() for p in trainable_value_params)
 
                 policy_optimizer.step()
                 value_optimizer.step()
                 
-                # Parameter change
-                pol_l2_change = torch.sqrt(sum(((p - pb) ** 2).sum() for p, pb in zip(trainable_policy_params, pol_params_before))).item()
-                val_l2_change = torch.sqrt(sum(((v - vb) ** 2).sum() for v, vb in zip(trainable_value_params, val_params_before))).item()
+                # Parameter change computed in float32
+                pol_l2_change = torch.sqrt(sum(((p.float() - pb) ** 2).sum() for p, pb in zip(trainable_policy_params, pol_params_before))).item()
+                val_l2_change = torch.sqrt(sum(((v.float() - vb) ** 2).sum() for v, vb in zip(trainable_value_params, val_params_before))).item()
 
                 if update_idx == 0 and verbose_diagnostics:
                     ratio_mask = ratio[loss_mask.bool()]
@@ -270,7 +272,8 @@ def run_ppo(config_path: str, output: str | None = None, updates: int | None = N
                     below_clip = (ratio_mask < (1.0 - eps)).float().mean().item()
                     above_clip = (ratio_mask > (1.0 + eps)).float().mean().item()
                     print(f"PPO Epoch {epoch_idx + 1} | Loss: {p_loss.item():.6f} | Ratio Stats: {stats(ratio, loss_mask)} | Clip Frac: {c_frac.item():.4f} (Below: {below_clip:.4f}, Above: {above_clip:.4f})")
-                    print(f"PPO Epoch {epoch_idx + 1} | Policy Grad Norm: {p_norm:.6f} | Nonzero Grads: {p_nonzero_grads}/{p_total_params} | Pol Param L2 Change: {pol_l2_change:.6e} | Val Param L2 Change: {val_l2_change:.6e}")
+                    print(f"PPO Epoch {epoch_idx + 1} | Policy Grad Norm: {p_norm:.6f} | Nonzero Grads: {p_nonzero_grads}/{p_total_params} | Pol Param L2 Change: {pol_l2_change:.6e}")
+                    print(f"PPO Epoch {epoch_idx + 1} | Value Grad Norm: {v_norm:.6f} | Nonzero Grads: {v_nonzero_grads}/{v_total_params} | Val Param L2 Change: {val_l2_change:.6e}")
 
                 pol_loss_val += p_loss.item()
                 val_loss_val += v_loss.item()
@@ -335,4 +338,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
