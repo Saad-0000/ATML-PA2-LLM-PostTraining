@@ -105,9 +105,11 @@ def evaluate_generation(policy, reward_bundle, tokenizer, rows, cfg):
             continue
             
         input_ids = torch.tensor([prompt_ids]).to(policy.device)
+        attention_mask = torch.ones_like(input_ids)
         with torch.no_grad():
             outputs = policy.generate(
                 input_ids, 
+                attention_mask=attention_mask,
                 max_new_tokens=max_gen, 
                 pad_token_id=tokenizer.pad_token_id, 
                 do_sample=False
