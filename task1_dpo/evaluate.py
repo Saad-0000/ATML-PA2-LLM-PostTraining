@@ -112,7 +112,9 @@ def evaluate_generation(policy, reward_bundle, tokenizer, rows, cfg):
                 attention_mask=attention_mask,
                 max_new_tokens=max_gen, 
                 pad_token_id=tokenizer.pad_token_id, 
-                do_sample=False
+                do_sample=False,
+                temperature=None,
+                top_p=None
             )
             
         gen_ids = outputs[0][len(prompt_ids):]
