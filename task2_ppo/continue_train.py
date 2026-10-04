@@ -154,19 +154,19 @@ def run_ppo(config_path: str, output: str | None = None, updates: int | None = N
         # 3. Logprobs & Values computation
         with torch.no_grad():
             # Policy old logprobs
-            logits = policy(input_ids=seq, attention_mask=seq_attn).logits
+            logits = policy(input_ids=seq, attention_mask=seq_attn).logits.float()
             labels = seq[:, 1:]
             log_probs = logits[:, :-1, :].log_softmax(-1)
             old_logp = torch.gather(log_probs, dim=2, index=labels.unsqueeze(2)).squeeze(2)
             
             # Reference logprobs
             with reference_mode(policy):
-                ref_logits = policy(input_ids=seq, attention_mask=seq_attn).logits
+                ref_logits = policy(input_ids=seq, attention_mask=seq_attn).logits.float()
                 ref_log_probs = ref_logits[:, :-1, :].log_softmax(-1)
                 ref_logp = torch.gather(ref_log_probs, dim=2, index=labels.unsqueeze(2)).squeeze(2)
                 
             # Values
-            all_vals = token_values(value_model, seq, seq_attn) # [1, seq_len]
+            all_vals = token_values(value_model, seq, seq_attn).float() # [1, seq_len]
             old_values = all_vals[:, :-1]
             
         # Slice for response positions
@@ -192,27 +192,28 @@ def run_ppo(config_path: str, output: str | None = None, updates: int | None = N
             value_optimizer.zero_grad()
             
             # Forward pass
-            cur_logits = policy(input_ids=seq, attention_mask=seq_attn).logits
+            cur_logits = policy(input_ids=seq, attention_mask=seq_attn).logits.float()
             cur_logp = torch.gather(cur_logits[:, :-1, :].log_softmax(-1), dim=2, index=labels.unsqueeze(2)).squeeze(2)
             
-            cur_vals = token_values(value_model, seq, seq_attn)[:, :-1]
+            cur_vals = token_values(value_model, seq, seq_attn)[:, :-1].float()
             
             p_loss, ratio, c_frac = ppo_policy_loss(cur_logp, old_logp, advantages, loss_mask, float(cfg["clip_epsilon"]))
             v_loss = value_mse_loss(cur_vals, returns, loss_mask)
             
             tot_loss = p_loss + value_coef * v_loss
-            tot_loss.backward()
-            
-            p_norm = torch.nn.utils.clip_grad_norm_(trainable_parameters(policy), max_grad_norm).item()
-            v_norm = torch.nn.utils.clip_grad_norm_(trainable_parameters(value_model), max_grad_norm).item()
-            
-            policy_optimizer.step()
-            value_optimizer.step()
-            
-            pol_loss_val += p_loss.item()
-            val_loss_val += v_loss.item()
-            clip_frac_val += c_frac.item()
-            grad_norm_val += (p_norm + v_norm) / 2.0
+            if not torch.isnan(tot_loss) and not torch.isinf(tot_loss):
+                tot_loss.backward()
+                
+                p_norm = torch.nn.utils.clip_grad_norm_(trainable_parameters(policy), max_grad_norm).item()
+                v_norm = torch.nn.utils.clip_grad_norm_(trainable_parameters(value_model), max_grad_norm).item()
+                
+                policy_optimizer.step()
+                value_optimizer.step()
+                
+                pol_loss_val += p_loss.item()
+                val_loss_val += v_loss.item()
+                clip_frac_val += c_frac.item()
+                grad_norm_val += (p_norm + v_norm) / 2.0
             
         pol_loss_val /= ppo_epochs
         val_loss_val /= ppo_epochs
