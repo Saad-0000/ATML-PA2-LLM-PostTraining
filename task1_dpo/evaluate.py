@@ -114,7 +114,8 @@ def evaluate_generation(policy, reward_bundle, tokenizer, rows, cfg):
                 pad_token_id=tokenizer.pad_token_id, 
                 do_sample=False,
                 temperature=None,
-                top_p=None
+                top_p=None,
+                top_k=None
             )
             
         gen_ids = outputs[0][len(prompt_ids):]
@@ -138,9 +139,9 @@ def evaluate_generation(policy, reward_bundle, tokenizer, rows, cfg):
         
         batch = {"input_ids": seq, "attention_mask": attn}
         with torch.no_grad():
-            pol_logp = get_per_token_logprobs(policy, batch)
             with reference_mode(policy):
                 ref_logp = get_per_token_logprobs(policy, batch)
+            pol_logp = get_per_token_logprobs(policy, batch)
                 
             from common.metrics import sampled_kl
             kl = sampled_kl(pol_logp, ref_logp, resp_mask).item()
