@@ -45,6 +45,16 @@ def prepare_ppo_continuation(config_path: str):
         cfg["paths"]["ppo_midpoint_value"],
         train_mode=cfg.get("value_train_mode", "head_only"),
     )
+    # Cast the entire value model to float32 to prevent AdamW overflow.
+    # The score head gradient can reach ~462 (max), whose square (213,444) far
+    # exceeds float16's max representable value (65,504). AdamW stores the
+    # second moment (exp_avg_sq) in float32 internally, but the final update
+    # `param -= lr * update` is cast back to float16 if param.dtype is float16,
+    # which overflows to Inf and corrupts all subsequent forward passes.
+    # Keeping the whole value model in float32 keeps both parameters AND hidden
+    # states in the same dtype, so no dtype-mismatch errors occur either.
+    value_model = value_model.float()
+
     reward_model, reward_tokenizer = load_reward_model(cfg)
     prompts = read_jsonl(cfg["paths"]["rl_prompt_train"])
 
