@@ -34,11 +34,24 @@ def prepare_grpo_continuation(config_path: str):
     cfg = load_yaml(config_path)
     set_seed(int(cfg["seed"]))
     tokenizer = load_tokenizer(cfg["base_model"])
+
+    # Use midpoint checkpoint if it exists, otherwise fall back to fresh LoRA.
+    midpoint = cfg["paths"].get("grpo_midpoint_policy")
+    adapter_ok = (
+        midpoint is not None
+        and (repo_path(midpoint) / "adapter_config.json").exists()
+    )
     policy = load_policy(
         cfg,
-        adapter_path=cfg["paths"]["grpo_midpoint_policy"],
+        adapter_path=midpoint if adapter_ok else None,
         trainable=True,
+        fresh_lora=not adapter_ok,
     )
+    if not adapter_ok:
+        print(
+            "[WARNING] grpo_midpoint_policy not found or incomplete "
+            "(Git LFS not pulled?). Starting from fresh LoRA on base model."
+        )
     reward_model, reward_tokenizer = load_reward_model(cfg)
     prompts = read_jsonl(cfg["paths"]["rl_prompt_train"])
     optimizer = AdamW(trainable_parameters(policy), lr=float(cfg["learning_rate"]))
