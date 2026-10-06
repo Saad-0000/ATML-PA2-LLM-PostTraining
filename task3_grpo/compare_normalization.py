@@ -166,7 +166,7 @@ def run_fork(
             if mask_trunc and sd["truncated"]:
                 mask_2d = mask_truncated_sequences(mask_2d, [True])
 
-            adv_i = seq_adv[i].unsqueeze(0)
+            adv_i = seq_adv[i].unsqueeze(0).to(cur_2d.device)
             loss_i, stats_i = grpo_policy_loss(
                 new_logp=cur_2d,
                 old_logp=old_2d,

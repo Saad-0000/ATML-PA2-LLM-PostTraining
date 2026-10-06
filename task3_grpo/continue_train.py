@@ -288,7 +288,7 @@ def run_grpo(
                 if mask_trunc and all_truncated[i]:
                     tok_mask_2d = mask_truncated_sequences(tok_mask_2d, [True])
 
-                adv_i = seq_adv[i].unsqueeze(0)  # [1]
+                adv_i = seq_adv[i].unsqueeze(0).to(cur_logp_2d.device)
 
                 loss_i, stats_i = grpo_policy_loss(
                     new_logp=cur_logp_2d,

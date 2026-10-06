@@ -48,7 +48,7 @@ def grpo_policy_loss(
     maximum generation length.
     """
     ratio = torch.exp(new_logp - old_logp)
-    adv = seq_adv[:, None]
+    adv = seq_adv[:, None].to(device=new_logp.device, dtype=new_logp.dtype)
     s1 = ratio * adv
     s2 = ratio.clamp(1.0 - eps, 1.0 + eps) * adv
     objective = torch.minimum(s1, s2)
