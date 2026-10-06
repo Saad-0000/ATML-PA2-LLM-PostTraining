@@ -200,6 +200,14 @@ def run_grpo(
                          or comp_ids[-1].item() != tokenizer.eos_token_id)
                 )
                 all_truncated.append(truncated)
+                print(
+                    "DEBUG:",
+                    "len=", len(comp_ids),
+                    "max=", max_comp_len,
+                    "eos=", tokenizer.eos_token_id,
+                    "last_token=", comp_ids[-1].item(),
+                    "truncated=", truncated
+                )
 
                 # Build full sequence tensors
                 full_ids = torch.tensor(
