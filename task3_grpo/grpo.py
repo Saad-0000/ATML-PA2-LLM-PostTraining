@@ -9,12 +9,26 @@ def group_relative_advantages(rewards: torch.Tensor, group_ids: torch.Tensor, ep
     """Return one scalar advantage per sampled completion.
 
     `group_ids[i]` identifies which prompt produced reward `rewards[i]`.
-    Validate this implementation against the group-relative definition in the assignment manual.
+    Each prompt group g is normalized independently:
+
+        mu_g  = mean(rewards in group g)
+        sig_g = std(rewards in group g, unbiased=False)
+        A_i   = (r_i - mu_g) / max(sig_g, eps)
+
+    This is the correct GRPO group-relative normalization.
+    The starter implementation was wrong: it normalized globally across all
+    rewards, mixing signals from different prompts.
     """
-    # Starter implementation: students must validate the grouping logic carefully.
-    mean = rewards.mean()
-    std = rewards.std(unbiased=False).clamp_min(eps)
-    return (rewards - mean) / std
+    advantages = torch.zeros_like(rewards)
+    unique_groups = group_ids.unique()
+    for gid in unique_groups:
+        mask = group_ids == gid
+        group_rewards = rewards[mask]
+        mu = group_rewards.mean()
+        sigma = group_rewards.std(unbiased=False).clamp_min(eps)
+        advantages[mask] = (group_rewards - mu) / sigma
+    return advantages
+
 
 
 def grpo_policy_loss(
