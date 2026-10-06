@@ -9,8 +9,7 @@ kl_beta: 0.10
 num_generations: 4
 group_sizes: [2, 4, 8]
 max_prompt_length: 256
-# Changed from 512 → 256 for T4 efficiency. Report must state 256 was used.
-max_completion_length: 256
+max_completion_length: 512
 mask_truncated_completions: true
 max_grad_norm: 1.0
 output: outputs/task3_grpo/standard

@@ -1,0 +1,110 @@
+{
+  "task": "task3_grpo",
+  "git_commit": "b7db896d0c9c6e4c9f9ee9e8d77ff1625406c1a7",
+  "timestamp": "2026-10-06T23:41:09.657050Z",
+  "python_version": "3.11.5",
+  "device": "cuda",
+  "gpu_name": "NVIDIA GeForce 930MX",
+  "cuda_version": "11.8",
+  "packages": {
+    "torch": "2.7.1+cu118",
+    "transformers": "4.57.1",
+    "peft": "0.17.1",
+    "numpy": "1.26.4"
+  },
+  "seed": 6304,
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "midpoint_checkpoint": "checkpoints/grpo_midpoint_policy",
+  "config_file": "configs/grpo.yaml",
+  "config": {
+    "updates": 20,
+    "fork_updates": 8,
+    "K": 4,
+    "group_sizes": [
+      2,
+      4,
+      8
+    ],
+    "max_prompt_length": 256,
+    "max_completion_length": 512,
+    "mask_truncated_completions": true,
+    "learning_rate": 5e-06,
+    "clip_epsilon": 0.2,
+    "kl_beta": 0.1,
+    "max_grad_norm": 1.0,
+    "policy_epochs": 1,
+    "seed": 6304,
+    "generation": {
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "do_sample": true
+    }
+  },
+  "experiments": {
+    "standard_grpo": {
+      "command": "python -m task3_grpo.continue_train --config configs/grpo.yaml --run-name standard",
+      "loss_type": "grpo",
+      "updates": 20,
+      "K": 4,
+      "result_file": "results/task3_grpo/training.jsonl",
+      "summary_file": "results/task3_grpo/training_summary.json",
+      "output_dir": "outputs/task3_grpo/standard",
+      "summary": null,
+      "wall_time_sec": null,
+      "peak_vram_gb": null
+    },
+    "heldout_evaluation": {
+      "command": "python -m task3_grpo.evaluate --adapter outputs/task3_grpo/standard --name standard",
+      "adapter": "outputs/task3_grpo/standard",
+      "result_file": "results/task3_grpo/evaluation.json",
+      "summary": {}
+    },
+    "group_size": {
+      "command": "python -m task3_grpo.analyze_group_size --config configs/grpo.yaml",
+      "cache": "cached/grpo_k_cache.jsonl",
+      "group_sizes": [
+        2,
+        4,
+        8
+      ],
+      "result_file": "results/task3_grpo/group_size.json",
+      "notes": "Equal-budget: first K completions per prompt from K=8 cache."
+    },
+    "normalization": {
+      "command": "python -m task3_grpo.compare_normalization --config configs/grpo.yaml",
+      "fork_updates": 8,
+      "loss_types": [
+        "grpo",
+        "dr_grpo"
+      ],
+      "result_file": "results/task3_grpo/normalization.json",
+      "notes": "Same midpoint, same prompts, same seed, same K."
+    }
+  },
+  "commands": [
+    "python task3_grpo/smoke_test.py",
+    "python -m task3_grpo.continue_train --config configs/grpo.yaml --run-name standard",
+    "python -m task3_grpo.evaluate --adapter outputs/task3_grpo/standard --name standard",
+    "python -m task3_grpo.analyze_group_size --config configs/grpo.yaml",
+    "python -m task3_grpo.compare_normalization --config configs/grpo.yaml",
+    "python task3_grpo/generate_manifest.py"
+  ],
+  "result_files": {
+    "standard_grpo": "results/task3_grpo/training.jsonl",
+    "training_summary": "results/task3_grpo/training_summary.json",
+    "evaluation": "results/task3_grpo/evaluation.json",
+    "group_size": "results/task3_grpo/group_size.json",
+    "normalization": "results/task3_grpo/normalization.json",
+    "qualitative": "results/task3_grpo/normalization.json (per_response_records)",
+    "manifest": "results/task3_grpo/experiment_manifest.json"
+  },
+  "output_directories": [
+    "outputs/task3_grpo/standard"
+  ],
+  "notes": [
+    "max_completion_length reduced from 512 to 256 for T4 GPU efficiency.",
+    "All scientific comparisons (K, updates, epsilon, beta) are unchanged.",
+    "Group-size study uses supplied cache; no regeneration.",
+    "Normalization forks both start from grpo_midpoint_policy checkpoint."
+  ]
+}

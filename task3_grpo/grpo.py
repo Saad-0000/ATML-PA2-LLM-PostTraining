@@ -57,15 +57,21 @@ def grpo_policy_loss(
     if loss_type == "grpo":
         denom = token_mask.sum(-1).clamp_min(1.0)
         per_sequence = token_sum / denom
-        policy_term = -per_sequence.mean()
     elif loss_type == "dr_grpo":
         if max_completion_length is None:
             raise ValueError("dr_grpo requires max_completion_length")
         # Constant normalization rather than dividing by each response's realized length.
         per_sequence = token_sum / float(max_completion_length)
-        policy_term = -per_sequence.mean()
     else:
         raise ValueError(f"Unknown loss_type={loss_type!r}")
+
+    valid_seq = (token_mask.sum(-1) > 0).float()
+    n_valid = valid_seq.sum()
+    if n_valid > 0:
+        policy_term = -(per_sequence * valid_seq).sum() / n_valid
+    else:
+        policy_term = torch.tensor(0.0, device=token_mask.device, dtype=token_mask.dtype)
+
 
     log_ratio_ref_over_policy = ref_logp - new_logp
     per_token_kl = torch.exp(log_ratio_ref_over_policy) - log_ratio_ref_over_policy - 1.0

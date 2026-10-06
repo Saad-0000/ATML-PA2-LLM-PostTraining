@@ -1,0 +1,109 @@
+{
+  "cache_used": "cached/grpo_k_cache.jsonl",
+  "total_prompts": 24,
+  "total_generation_budget": 192,
+  "difficulty_binning_rule": "Median split on prompt mean reward across all 8 cached completions. Prompts with mean reward < 2.1987 are binned as 'hard', and prompts with mean reward >= 2.1987 are binned as 'easy'.",
+  "median_reward_threshold": 2.19873046875,
+  "group_sizes_studied": [
+    2,
+    4,
+    8
+  ],
+  "metric_definitions": {
+    "informative_group_rate": "Fraction of groups with within-group reward sample std > 1e-4",
+    "mean_within_group_reward_std": "Mean across groups of within-group reward standard deviation ddof=0",
+    "variance_of_group_relative_signal": "Sample variance ddof=0 of normalized advantages A_i across all completions"
+  },
+  "results": {
+    "K=2": {
+      "K": 2,
+      "total_generations_budget": 192,
+      "overall": {
+        "n_groups": 96,
+        "total_generations": 192,
+        "informative_group_rate": 0.9375,
+        "uninformative_group_fraction": 0.0625,
+        "mean_within_group_reward_std": 0.3845672607421875,
+        "variance_of_group_relative_signal": 0.9375
+      },
+      "difficulty_bins": {
+        "hard": {
+          "n_groups": 48,
+          "total_generations": 96,
+          "informative_group_rate": 0.8958333333333334,
+          "uninformative_group_fraction": 0.10416666666666667,
+          "mean_within_group_reward_std": 0.5283304850260416,
+          "variance_of_group_relative_signal": 0.8958333333333334
+        },
+        "easy": {
+          "n_groups": 48,
+          "total_generations": 96,
+          "informative_group_rate": 0.9791666666666666,
+          "uninformative_group_fraction": 0.020833333333333332,
+          "mean_within_group_reward_std": 0.24080403645833334,
+          "variance_of_group_relative_signal": 0.9791666666666666
+        }
+      }
+    },
+    "K=4": {
+      "K": 4,
+      "total_generations_budget": 192,
+      "overall": {
+        "n_groups": 48,
+        "total_generations": 192,
+        "informative_group_rate": 0.9583333333333334,
+        "uninformative_group_fraction": 0.041666666666666664,
+        "mean_within_group_reward_std": 0.5410043647319412,
+        "variance_of_group_relative_signal": 0.9583333333333334
+      },
+      "difficulty_bins": {
+        "hard": {
+          "n_groups": 24,
+          "total_generations": 96,
+          "informative_group_rate": 0.9166666666666666,
+          "uninformative_group_fraction": 0.08333333333333333,
+          "mean_within_group_reward_std": 0.711506330909153,
+          "variance_of_group_relative_signal": 0.9166666666666666
+        },
+        "easy": {
+          "n_groups": 24,
+          "total_generations": 96,
+          "informative_group_rate": 1.0,
+          "uninformative_group_fraction": 0.0,
+          "mean_within_group_reward_std": 0.37050239855472933,
+          "variance_of_group_relative_signal": 1.0
+        }
+      }
+    },
+    "K=8": {
+      "K": 8,
+      "total_generations_budget": 192,
+      "overall": {
+        "n_groups": 24,
+        "total_generations": 192,
+        "informative_group_rate": 0.9583333333333334,
+        "uninformative_group_fraction": 0.041666666666666664,
+        "mean_within_group_reward_std": 0.6190544134665206,
+        "variance_of_group_relative_signal": 0.9583333333333334
+      },
+      "difficulty_bins": {
+        "hard": {
+          "n_groups": 12,
+          "total_generations": 96,
+          "informative_group_rate": 0.9166666666666666,
+          "uninformative_group_fraction": 0.08333333333333333,
+          "mean_within_group_reward_std": 0.8002487347571022,
+          "variance_of_group_relative_signal": 0.9166666666666666
+        },
+        "easy": {
+          "n_groups": 12,
+          "total_generations": 96,
+          "informative_group_rate": 1.0,
+          "uninformative_group_fraction": 0.0,
+          "mean_within_group_reward_std": 0.4378600921759388,
+          "variance_of_group_relative_signal": 1.0
+        }
+      }
+    }
+  }
+}
