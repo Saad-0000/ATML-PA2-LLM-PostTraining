@@ -34,7 +34,17 @@ def encode_prompt_ids(tokenizer, msgs, max_len: int | None = None) -> list[int]:
         add_generation_prompt=True,
         return_tensors="pt",
     )
-    ids = tensor[0].tolist()
+    if hasattr(tensor, "input_ids"):
+        ids = tensor.input_ids[0].tolist()
+    elif hasattr(tensor, "tolist"):
+        ids = tensor[0].tolist()
+    elif isinstance(tensor, list) and len(tensor) > 0 and hasattr(tensor[0], "ids"):
+        ids = list(tensor[0].ids)
+    elif isinstance(tensor, list) and len(tensor) > 0 and isinstance(tensor[0], list):
+        ids = list(tensor[0])
+    else:
+        ids = list(tensor)
+
     if max_len is not None and len(ids) > max_len:
         ids = ids[:max_len]
     return ids
