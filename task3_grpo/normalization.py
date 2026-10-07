@@ -26,9 +26,35 @@ from task3_grpo.grpo import (
 )
 
 
+def extract_input_ids(encoded) -> list[int]:
+    """Robustly extract a list of integer token IDs from any tokenizer return type."""
+    if hasattr(encoded, "ids"):
+        return list(encoded.ids)
+    if isinstance(encoded, dict) and "input_ids" in encoded:
+        val = encoded["input_ids"]
+        if hasattr(val, "tolist"):
+            val = val.tolist()
+        if val and isinstance(val, list) and isinstance(val[0], list):
+            val = val[0]
+        return list(val)
+    if hasattr(encoded, "tolist"):
+        val = encoded.tolist()
+        if val and isinstance(val, list) and isinstance(val[0], list):
+            val = val[0]
+        return list(val)
+    if isinstance(encoded, list):
+        if encoded and hasattr(encoded[0], "ids"):
+            return list(encoded[0].ids)
+        if encoded and isinstance(encoded[0], list):
+            return list(encoded[0])
+        return list(encoded)
+    return list(encoded)
+
+
 @torch.no_grad()
 def generate_k(policy, tokenizer, prompt_ids, K, max_new, gen_cfg, device):
-    inp = torch.tensor([prompt_ids], device=device)
+    prompt_ids = extract_input_ids(prompt_ids)
+    inp = torch.tensor([prompt_ids], dtype=torch.long, device=device)
     attn = torch.ones_like(inp)
     results = []
     for _ in range(K):
@@ -68,11 +94,11 @@ def evaluate_heldout_subset(policy, ref_policy, reward_bundle, tokenizer, eval_r
 
     for row in eval_rows[:n_eval]:
         msgs = prompt_messages(row)
-        prompt_ids = tokenizer.apply_chat_template(msgs, tokenize=True, add_generation_prompt=True)
+        prompt_ids = extract_input_ids(tokenizer.apply_chat_template(msgs, tokenize=True, add_generation_prompt=True))
         if len(prompt_ids) > max_prompt:
             prompt_ids = prompt_ids[:max_prompt]
 
-        inp = torch.tensor([prompt_ids], device=device)
+        inp = torch.tensor([prompt_ids], dtype=torch.long, device=device)
         attn = torch.ones_like(inp)
         out = policy.generate(
             inp,
@@ -160,7 +186,7 @@ def run_normalization_fork(
         row = prompts[prompt_idx]
         msgs = prompt_messages(row)
         p_id = str(row.get("prompt_id", f"prompt_{prompt_idx}"))
-        prompt_ids = tokenizer.apply_chat_template(msgs, tokenize=True, add_generation_prompt=True)
+        prompt_ids = extract_input_ids(tokenizer.apply_chat_template(msgs, tokenize=True, add_generation_prompt=True))
         if len(prompt_ids) > max_prompt:
             prompt_ids = prompt_ids[:max_prompt]
 
