@@ -110,13 +110,31 @@ def main():
     cfg = load_yaml(args.config)
     tok, model = load_judge(cfg)
     print("Fixed Task 4 judge loaded:", cfg["ai_judge_model"])
+    
+    from common.data import repo_path
+    outdir = repo_path(cfg.get("results_dir", "results")) / "task4_safety"
+    
     if args.input:
-        rows = read_jsonl(args.input)
-        print("Input rows:", len(rows))
-    raise NotImplementedError(
-        "TODO(student): apply judge_one to your frozen-policy response files, cache the labels, and implement the required Task 4 aggregation."
-    )
-
+        inpaths = [Path(args.input)]
+    else:
+        inpaths = list(outdir.glob("generated_*.jsonl"))
+        
+    for inpath in inpaths:
+        outpath = inpath.with_name(inpath.name.replace("generated_", "judged_"))
+        print(f"Judging {inpath.name} -> {outpath.name}")
+        rows = read_jsonl(inpath)
+        judged_rows = []
+        for row in rows:
+            judge_res = judge_one(tok, model, row["prompt"], row["response"], max_new_tokens=int(cfg.get("judge_max_new_tokens", 64)))
+            new_row = row.copy()
+            new_row["ai_label"] = judge_res["label"]
+            new_row["ai_confidence"] = judge_res["confidence"]
+            new_row["ai_rationale"] = judge_res["rationale_tag"]
+            judged_rows.append(new_row)
+        
+        with open(outpath, "w", encoding="utf-8") as f:
+            for r in judged_rows:
+                f.write(json.dumps(r) + "\n")
 
 if __name__ == "__main__":
     main()

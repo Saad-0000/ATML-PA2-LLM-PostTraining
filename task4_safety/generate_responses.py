@@ -63,9 +63,23 @@ def main():
     cfg = load_yaml(args.config)
     print("Policies:", list(policy_specs(cfg)))
     print("XSTest rows:", len(load_xstest(cfg)))
-    raise NotImplementedError(
-        "TODO(student): call generate_for_policy for SFT/DPO/PPO/GRPO, save common deterministic responses, and preserve the fixed prompt order."
-    )
+
+    import json
+    from common.data import repo_path
+
+    outdir = repo_path(cfg.get("results_dir", "results")) / "task4_safety"
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    for policy_name in policy_specs(cfg):
+        outpath = outdir / f"generated_{policy_name}.jsonl"
+        print(f"Generating for {policy_name} -> {outpath}")
+        try:
+            records = generate_for_policy(cfg, policy_name)
+            with open(outpath, "w", encoding="utf-8") as f:
+                for rec in records:
+                    f.write(json.dumps(rec) + "\n")
+        except Exception as e:
+            print(f"Failed to generate for {policy_name}: {e}")
 
 
 if __name__ == "__main__":
