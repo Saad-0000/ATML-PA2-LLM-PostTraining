@@ -29,28 +29,18 @@ def load_evaluation_bundle(config_path: str, adapter: str):
     }
 
 
-def extract_input_ids(encoded) -> list[int]:
-    if hasattr(encoded, "ids"):
-        return list(encoded.ids)
-    if isinstance(encoded, dict) and "input_ids" in encoded:
-        val = encoded["input_ids"]
-        if hasattr(val, "tolist"):
-            val = val.tolist()
-        if val and isinstance(val, list) and isinstance(val[0], list):
-            val = val[0]
-        return list(val)
-    if hasattr(encoded, "tolist"):
-        val = encoded.tolist()
-        if val and isinstance(val, list) and isinstance(val[0], list):
-            val = val[0]
-        return list(val)
-    if isinstance(encoded, list):
-        if encoded and hasattr(encoded[0], "ids"):
-            return list(encoded[0].ids)
-        if encoded and isinstance(encoded[0], list):
-            return list(encoded[0])
-        return list(encoded)
-    return list(encoded)
+def encode_prompt_ids(tokenizer, msgs, max_len: int | None = None) -> list[int]:
+    """Encode chat messages into a list of integer token IDs using return_tensors='pt'."""
+    tensor = tokenizer.apply_chat_template(
+        msgs,
+        tokenize=True,
+        add_generation_prompt=True,
+        return_tensors="pt",
+    )
+    ids = tensor[0].tolist()
+    if max_len is not None and len(ids) > max_len:
+        ids = ids[:max_len]
+    return ids
 
 
 def evaluate_grpo_policy(
@@ -74,9 +64,7 @@ def evaluate_grpo_policy(
 
     for idx, row in enumerate(rows):
         msgs = prompt_messages(row)
-        prompt_ids = extract_input_ids(tokenizer.apply_chat_template(
-            msgs, tokenize=True, add_generation_prompt=True
-        ))
+        prompt_ids = encode_prompt_ids(tokenizer, msgs)
         if len(prompt_ids) > max_prompt:
             continue
 
