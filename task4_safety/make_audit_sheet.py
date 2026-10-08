@@ -29,10 +29,22 @@ def main():
     src = outdir / "generated_sft.jsonl"
     if not src.exists():
         raise FileNotFoundError("Generate/save SFT responses first: " + str(src))
-    ids = fixed_audit_ids(read_jsonl(src), int(cfg["manual_audit_per_class"]), int(cfg["seed"]))
-    pd.DataFrame({"xstest_id": ids, "manual_label": [""] * len(ids)}).to_csv(outdir / "manual_audit_ids.csv", index=False)
-    print("Wrote fixed audit IDs:", outdir / "manual_audit_ids.csv")
-    print("Join these IDs to each policy's generated responses and label without viewing AI labels first.")
+    rows = read_jsonl(src)
+    ids = fixed_audit_ids(rows, int(cfg["manual_audit_per_class"]), int(cfg["seed"]))
+    
+    # Extract the actual prompt and response for these IDs so they are readable in the CSV
+    audit_data = []
+    for r in rows:
+        if r["xstest_id"] in ids:
+            audit_data.append({
+                "xstest_id": r["xstest_id"],
+                "prompt": r["prompt"],
+                "sft_response": r["response"],
+                "manual_label": ""
+            })
+            
+    pd.DataFrame(audit_data).to_csv(outdir / "manual_audit_ids.csv", index=False)
+    print("Wrote fixed audit IDs with text:", outdir / "manual_audit_ids.csv")
 
 
 if __name__ == "__main__":
