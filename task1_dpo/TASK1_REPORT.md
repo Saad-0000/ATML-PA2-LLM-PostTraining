@@ -41,3 +41,4 @@
 ## 7. Remaining Limitations or Unverified Behavior
 * The evaluation script uses `do_sample=False` for deterministic generation evaluation. Ensure this matches any specific sampling requests in the manual if they differ.
 * Because GPU memory limitations couldn't be tested here, depending on Colab's VRAM you may need to reduce `batch_size` from 2 to 1 and double `grad_accum_steps` if OOM errors occur during DPO training.
+
