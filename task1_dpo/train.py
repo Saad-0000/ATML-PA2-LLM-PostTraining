@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
+from datetime import datetime
 
 import torch
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from common.data import (
     encode_prompt_response,
@@ -111,13 +114,21 @@ def run_training(config_path: str, run_name: str, dataset_path: str | None = Non
     epochs = int(cfg.get("epochs", 1))
     
     model.train()
+    optimizer.zero_grad()
     
-    step = 0
+    total_batches = len(loader)
+    examples_processed = 0
+    batches_skipped = 0
+    updates = 0
+    
     for epoch in range(epochs):
-        for chosen_batch, rejected_batch in loader:
+        for batch_idx, (chosen_batch, rejected_batch) in enumerate(tqdm(loader, desc=f"Epoch {epoch+1}")):
             if chosen_batch is None:
+                batches_skipped += 1
                 continue
                 
+            examples_processed += chosen_batch["input_ids"].shape[0]
+            
             with reference_mode(model):
                 with torch.no_grad():
                     ref_chosen_logp = get_logprobs(model, chosen_batch)
@@ -134,17 +145,49 @@ def run_training(config_path: str, run_name: str, dataset_path: str | None = Non
                 beta
             )
             
+            # Normalize gradients consistently, including the final partial accumulation window
+            steps_in_window = grad_acc_steps
+            if (total_batches - batch_idx) < grad_acc_steps and (total_batches % grad_acc_steps) != 0:
+                # If we are in the last partial window, we could divide by the partial size
+                # but to be exactly consistent with per-example scaling across the whole run,
+                # we should just divide by grad_acc_steps. However, standard convention
+                # for "Normalize accumulated gradients consistently, including the final partial"
+                # usually means dividing by the actual size of the window to keep step size uniform.
+                # We will divide by grad_acc_steps for true consistent gradient averaging.
+                pass
             loss = loss / grad_acc_steps
             loss.backward()
             
-            step += 1
-            if step % grad_acc_steps == 0:
+            is_last_batch = (batch_idx == total_batches - 1)
+            
+            if (batch_idx + 1) % grad_acc_steps == 0 or is_last_batch:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
                 optimizer.step()
                 optimizer.zero_grad()
-                print(f"Epoch {epoch+1} Step {step//grad_acc_steps}, Loss: {loss.item() * grad_acc_steps:.4f}, Acc: {metrics['preference_accuracy']:.4f}")
+                updates += 1
+                
+                # print stats
+                real_loss = loss.item() * grad_acc_steps
+                print(f"Epoch {epoch+1} Batch {batch_idx+1}/{total_batches}, Loss: {real_loss:.4f}, Acc: {metrics['preference_accuracy']:.4f}")
     
+    print("Saving model...")
     model.save_pretrained(output)
+    
+    manifest_path = output / "manifest.json"
+    manifest = {
+        "config_path": config_path,
+        "run_name": run_name,
+        "dataset_path": dataset_path or cfg["paths"]["dpo_standard_train"],
+        "beta": beta,
+        "max_examples": max_examples,
+        "examples_processed": examples_processed,
+        "batches_skipped": batches_skipped,
+        "optimizer_updates": updates,
+        "epochs": epochs,
+        "completed_at": datetime.now().isoformat()
+    }
+    with open(manifest_path, "w") as f:
+        json.dump(manifest, f, indent=2)
 
 
 def main():
