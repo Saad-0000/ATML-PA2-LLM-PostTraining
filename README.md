@@ -84,10 +84,22 @@ The PPO value checkpoint is intentionally released as the exact staff midpoint s
 ### Task 1 - DPO
 
 ```bash
+# Standard DPO training and evaluation on standard hold-out set
 python -m task1_dpo.train --config configs/dpo.yaml --run-name standard
-python -m task1_dpo.evaluate --config configs/dpo.yaml --adapter outputs/task1_dpo/standard --name standard
+python -m task1_dpo.evaluate --config configs/dpo.yaml --adapter outputs/task1_dpo/standard --name standard --eval-dataset standard
+
+# Beta ablation training
 python -m task1_dpo.ablate_beta --config configs/dpo.yaml
+
+# Length-confounding study: train length-balanced condition & evaluate on length-stratified holdout
 python -m task1_dpo.analyze_length --config configs/dpo.yaml
+python -m task1_dpo.evaluate --config configs/dpo.yaml --adapter outputs/task1_dpo/length_balanced --name length_balanced --eval-dataset length_stratified
+
+# Evaluate standard DPO baseline on length-stratified holdout for direct comparison across strata
+python -m task1_dpo.evaluate --config configs/dpo.yaml --adapter outputs/task1_dpo/standard --name standard_length_stratified --eval-dataset length_stratified
+
+# Extract qualitative failure and confounding examples
+python -m task1_dpo.qualitative_analysis --config configs/dpo.yaml
 ```
 
 ### Task 2 - PPO

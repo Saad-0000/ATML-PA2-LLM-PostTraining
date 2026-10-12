@@ -30,11 +30,14 @@ def word_count(text: str) -> int:
     return len(re.findall(r"\b\w+\b", text))
 
 
-def parse_word_limit(prompt: str):
+def parse_word_limit(prompt: str) -> int | None:
     patterns = [
-        r"(?:at most|no more than|under|within)\s+(\d+)\s+words?",
-        r"(?:in|use)\s+(\d+)\s+words?\s+(?:or fewer|max(?:imum)?)",
+        r"(?:at most|no more than|under|within|fewer than|less than)\s+(\d+)\s+words?",
+        r"(?:in|use)\s+(?:at most|no more than)\s+(\d+)\s+words?",
+        r"(?:in|use)\s+(\d+)\s+words?\s+(?:or fewer|or less|max(?:imum)?)",
         r"(?:maximum|max)\s+(?:of\s+)?(\d+)\s+words?",
+        r"(?:do not exceed|not exceeding|not to exceed)\s+(\d+)\s+words?",
+        r"(?:word limit|limit)(?:\s+is|\s+of|:)\s*(\d+)\s*(?:words?)?",
     ]
     lower = str(prompt).lower()
     for pattern in patterns:

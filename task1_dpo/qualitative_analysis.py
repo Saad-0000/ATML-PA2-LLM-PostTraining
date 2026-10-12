@@ -52,21 +52,56 @@ def main():
                 break
                 
     # 2. Higher reward-model score does not correspond to better instruction following
-    # Look for word limit compliance vs reward
-    for eid in std_word:
-        if eid in std_gen:
-            word_r = std_word[eid]
-            gen_r = std_gen[eid]
-            if not word_r["compliant"] and gen_r["reward"] > 0: # High reward but failed constraint
+    # Look for word limit compliance vs reward in word_limit_results (scored by reward model)
+    for eid, word_r in std_word.items():
+        if not word_r.get("compliant", True) and word_r.get("reward", float("-inf")) > 0:
+            qualitative.append({
+                "phenomenon": "High Reward but Failed Constraint",
+                "id": eid,
+                "prompt": word_r["prompt"],
+                "response": word_r["response"],
+                "reward": word_r.get("reward"),
+                "length": word_r.get("length", word_r.get("word_count")),
+                "word_count": word_r.get("word_count"),
+                "compliant": word_r["compliant"],
+                "limit": word_r["limit"],
+            })
+            break
+
+    # If no positive reward failure, find any constraint failure in standard
+    if not any(q["phenomenon"] == "High Reward but Failed Constraint" for q in qualitative):
+        for eid, word_r in std_word.items():
+            if not word_r.get("compliant", True):
                 qualitative.append({
-                    "phenomenon": "High Reward but Failed Constraint",
+                    "phenomenon": "Constraint Failure on Word Limit",
                     "id": eid,
                     "prompt": word_r["prompt"],
                     "response": word_r["response"],
-                    "reward": gen_r["reward"],
-                    "length": gen_r["length"],
+                    "reward": word_r.get("reward"),
+                    "length": word_r.get("length", word_r.get("word_count")),
+                    "word_count": word_r.get("word_count"),
                     "compliant": word_r["compliant"],
-                    "limit": word_r["limit"]
+                    "limit": word_r["limit"],
+                })
+                break
+
+    # 3. Word limit behavior: Standard vs Length-balanced comparison
+    for eid in std_word:
+        if eid in bal_word:
+            w1 = std_word[eid]
+            w2 = bal_word[eid]
+            if w1.get("compliant") != w2.get("compliant") or abs(w1.get("word_count", 0) - w2.get("word_count", 0)) >= 5:
+                qualitative.append({
+                    "phenomenon": "Word Limit Confounding: Standard vs Length-Balanced",
+                    "id": eid,
+                    "prompt": w1["prompt"],
+                    "limit": w1["limit"],
+                    "standard_response": w1["response"],
+                    "standard_words": w1.get("word_count"),
+                    "standard_compliant": w1.get("compliant"),
+                    "balanced_response": w2["response"],
+                    "balanced_words": w2.get("word_count"),
+                    "balanced_compliant": w2.get("compliant"),
                 })
                 break
                 
