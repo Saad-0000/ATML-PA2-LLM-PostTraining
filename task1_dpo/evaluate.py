@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
+import datetime
 import json
 from pathlib import Path
+import sys
 
 import numpy as np
 import torch
@@ -29,6 +31,12 @@ from common.models import load_policy, load_reward_model, load_tokenizer
 from task1_dpo.dpo import dpo_loss
 
 
+def log_status(msg: str) -> None:
+    """Print timestamped status message and immediately flush stdout for live visibility."""
+    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{ts}] {msg}", flush=True)
+
+
 def resolve_eval_dataset(cfg: dict, dataset_name: str | None, data_path: str | None = None) -> tuple[str, Path]:
     if data_path:
         p = repo_path(data_path)
@@ -44,18 +52,40 @@ def load_evaluation_bundle(
     eval_dataset: str | None = None,
     eval_data_path: str | None = None,
 ):
+    log_status(f"[1/5: Model Loading] Reading configuration from {config_path}...")
     cfg = load_yaml(config_path)
     ds_name, ds_path = resolve_eval_dataset(cfg, eval_dataset, eval_data_path)
+
+    log_status(f"[1/5: Model Loading] Reading evaluation dataset '{ds_name}' from {ds_path}...")
+    rows = read_jsonl(ds_path)
+    word_limit_rows = read_jsonl(cfg["paths"]["word_limit_prompts"])
+    log_status(
+        f"[1/5: Model Loading] Loaded {len(rows)} preference pairs and {len(word_limit_rows)} word-limit prompts."
+    )
+
+    log_status(f"[1/5: Model Loading] Initializing tokenizer ({cfg['base_model']})...")
+    tokenizer = load_tokenizer(cfg["base_model"])
+
+    log_status(f"[1/5: Model Loading] Loading evaluation policy with adapter ({adapter})...")
+    policy = load_policy(cfg, adapter_path=adapter, trainable=False)
+
+    log_status(f"[1/5: Model Loading] Loading frozen reference policy ({cfg['base_model']})...")
+    ref_policy = load_policy(cfg, adapter_path=None, trainable=False)
+
+    log_status(f"[1/5: Model Loading] Loading reward model ({cfg['reward_model']})...")
+    reward = load_reward_model(cfg)
+
+    log_status("[1/5: Model Loading] All models and tokenizers loaded successfully.")
     return {
         "cfg": cfg,
         "eval_dataset_name": ds_name,
         "eval_dataset_path": str(ds_path),
-        "rows": read_jsonl(ds_path),
-        "word_limit_rows": read_jsonl(cfg["paths"]["word_limit_prompts"]),
-        "tokenizer": load_tokenizer(cfg["base_model"]),
-        "policy": load_policy(cfg, adapter_path=adapter, trainable=False),
-        "ref_policy": load_policy(cfg, adapter_path=None, trainable=False),
-        "reward": load_reward_model(cfg),
+        "rows": rows,
+        "word_limit_rows": word_limit_rows,
+        "tokenizer": tokenizer,
+        "policy": policy,
+        "ref_policy": ref_policy,
+        "reward": reward,
     }
 
 
@@ -99,8 +129,16 @@ def evaluate_preferences(policy, ref_policy, tokenizer, rows, cfg):
     beta = float(cfg["beta"])
 
     results = []
+    skipped_count = 0
 
-    for row in tqdm(rows, desc="Evaluating preferences"):
+    pbar = tqdm(
+        rows,
+        desc="[2/5 Preference Eval]",
+        total=len(rows),
+        file=sys.stdout,
+        dynamic_ncols=True,
+    )
+    for row in pbar:
         prompt = prompt_messages_from_preference(row)
         yc, yr = preference_responses(row)
 
@@ -108,6 +146,8 @@ def evaluate_preferences(policy, ref_policy, tokenizer, rows, cfg):
             c_enc = encode_prompt_response(tokenizer, prompt, yc, max_length)
             r_enc = encode_prompt_response(tokenizer, prompt, yr, max_length)
         except ValueError:
+            skipped_count += 1
+            pbar.set_postfix({"skipped": skipped_count})
             continue
 
         c_batch = pad_batch(tokenizer, [c_enc])
@@ -144,6 +184,16 @@ def evaluate_preferences(policy, ref_policy, tokenizer, rows, cfg):
             "rejected_length": word_count(yr),
         })
 
+        pbar.set_postfix({
+            "loss": f"{loss.item():.3f}",
+            "m_theta": f"{metrics['reference_adjusted_margin_mean'].item():.2f}",
+            "skipped": skipped_count,
+        })
+
+    log_status(
+        f"[2/5: Preference Evaluation] Completed: {len(results)} evaluated, "
+        f"{skipped_count} skipped (exceeded max_sequence_length={max_length})."
+    )
     return results
 
 
@@ -153,11 +203,21 @@ def evaluate_generation(policy, ref_policy, reward_bundle, tokenizer, rows, cfg)
     max_gen = int(cfg.get("max_generation_tokens", 256))
 
     results = []
+    skipped_count = 0
 
-    for row in tqdm(rows, desc="Evaluating generation"):
+    pbar = tqdm(
+        rows,
+        desc="[3/5 Generation Eval]",
+        total=len(rows),
+        file=sys.stdout,
+        dynamic_ncols=True,
+    )
+    for row in pbar:
         prompt = prompt_messages_from_preference(row)
         prompt_ids = tokenizer.apply_chat_template(prompt, tokenize=True, add_generation_prompt=True)
         if len(prompt_ids) > max_prompt:
+            skipped_count += 1
+            pbar.set_postfix({"skipped": skipped_count})
             continue
 
         input_ids = torch.tensor([prompt_ids]).to(policy.device)
@@ -205,6 +265,17 @@ def evaluate_generation(policy, ref_policy, reward_bundle, tokenizer, rows, cfg)
             "word_count": word_count(response_text),
         })
 
+        pbar.set_postfix({
+            "rew": f"{score:.2f}",
+            "kl": f"{kl:.2f}",
+            "len": response_len,
+            "skipped": skipped_count,
+        })
+
+    log_status(
+        f"[3/5: Generation Evaluation] Completed: {len(results)} evaluated, "
+        f"{skipped_count} skipped (prompt length > {max_prompt})."
+    )
     return results
 
 
@@ -216,7 +287,14 @@ def evaluate_word_limits(policy, reward_bundle, tokenizer, rows, cfg):
     results = []
     skipped = []
 
-    for row in tqdm(rows, desc="Evaluating word limits"):
+    pbar = tqdm(
+        rows,
+        desc="[4/5 Word Limit Eval]",
+        total=len(rows),
+        file=sys.stdout,
+        dynamic_ncols=True,
+    )
+    for row in pbar:
         row_id = row.get("prompt_id") or row.get("id", "")
         messages = prompt_messages(row)
 
@@ -236,6 +314,7 @@ def evaluate_word_limits(policy, reward_bundle, tokenizer, rows, cfg):
                 "reason": "empty_prompt",
                 "details": "Could not extract user prompt text from row.",
             })
+            pbar.set_postfix({"skipped": len(skipped)})
             continue
 
         limit = parse_word_limit(prompt_text)
@@ -246,6 +325,7 @@ def evaluate_word_limits(policy, reward_bundle, tokenizer, rows, cfg):
                 "prompt": prompt_text,
                 "details": "No recognized word limit constraint found in prompt text.",
             })
+            pbar.set_postfix({"skipped": len(skipped)})
             continue
 
         prompt_ids = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True)
@@ -255,6 +335,7 @@ def evaluate_word_limits(policy, reward_bundle, tokenizer, rows, cfg):
                 "reason": "prompt_too_long",
                 "details": f"Prompt length {len(prompt_ids)} exceeds max_prompt {max_prompt}.",
             })
+            pbar.set_postfix({"skipped": len(skipped)})
             continue
 
         input_ids = torch.tensor([prompt_ids]).to(policy.device)
@@ -290,6 +371,17 @@ def evaluate_word_limits(policy, reward_bundle, tokenizer, rows, cfg):
             "length": len(gen_ids),
         })
 
+        pbar.set_postfix({
+            "limit": limit,
+            "words": words,
+            "ok": is_compliant,
+            "skipped": len(skipped),
+        })
+
+    log_status(
+        f"[4/5: Word Limit Evaluation] Completed: {len(results)} evaluated, "
+        f"{len(skipped)} skipped."
+    )
     return results, skipped
 
 
@@ -312,11 +404,15 @@ def main():
     if eval_dataset is None:
         if "length" in args.name.lower() or "length" in str(args.adapter).lower():
             eval_dataset = "length_stratified"
-            print(f"Notice: Selecting --eval-dataset 'length_stratified' based on adapter/name: {args.name}")
+            log_status(f"Notice: Selecting --eval-dataset 'length_stratified' based on adapter/name: {args.name}")
         else:
             eval_dataset = "standard"
 
-    print(f"Loading models for {args.name} evaluation (eval_dataset={eval_dataset})...")
+    log_status(
+        f"=== Starting Task 1 Evaluation: run='{args.name}', adapter='{args.adapter}', eval_dataset='{eval_dataset}' ==="
+    )
+
+    # Stage 1: Load Models and Datasets
     bundle = load_evaluation_bundle(
         args.config,
         args.adapter,
@@ -331,30 +427,50 @@ def main():
     output_dir = repo_path(cfg["results_dir"]) / args.name
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Evaluating preference accuracy and DPO loss on {bundle['eval_dataset_name']} ({len(bundle['rows'])} pairs)...")
+    # Stage 2: Preference Accuracy and DPO Loss Evaluation
+    log_status(
+        f"[2/5: Preference Evaluation] Evaluating {len(bundle['rows'])} pairs on '{bundle['eval_dataset_name']}'..."
+    )
     pref_results = evaluate_preferences(policy, ref_policy, tokenizer, bundle["rows"], cfg)
-    with open(output_dir / "preference_results.jsonl", "w") as f:
+    pref_out = output_dir / "preference_results.jsonl"
+    with open(pref_out, "w") as f:
         for r in pref_results:
             f.write(json.dumps(r) + "\n")
+    log_status(f"[2/5: Preference Evaluation] Wrote {len(pref_results)} records to {pref_out}")
 
-    print(f"Evaluating generation (Reward, KL, Length) on {bundle['eval_dataset_name']}...")
+    # Stage 3: Generation Evaluation
+    log_status(
+        f"[3/5: Generation Evaluation] Evaluating generation on '{bundle['eval_dataset_name']}' ({len(bundle['rows'])} prompts)..."
+    )
     gen_results = evaluate_generation(policy, ref_policy, bundle["reward"], tokenizer, bundle["rows"], cfg)
-    with open(output_dir / "generation_results.jsonl", "w") as f:
+    gen_out = output_dir / "generation_results.jsonl"
+    with open(gen_out, "w") as f:
         for r in gen_results:
             f.write(json.dumps(r) + "\n")
+    log_status(f"[3/5: Generation Evaluation] Wrote {len(gen_results)} records to {gen_out}")
 
-    print(f"Evaluating word limits ({len(bundle['word_limit_rows'])} prompts)...")
-    word_results, word_skipped = evaluate_word_limits(policy, bundle["reward"], tokenizer, bundle["word_limit_rows"], cfg)
-    with open(output_dir / "word_limit_results.jsonl", "w") as f:
+    # Stage 4: Word Limits Evaluation
+    log_status(
+        f"[4/5: Word Limit Evaluation] Evaluating {len(bundle['word_limit_rows'])} word-limit prompts..."
+    )
+    word_results, word_skipped = evaluate_word_limits(
+        policy, bundle["reward"], tokenizer, bundle["word_limit_rows"], cfg
+    )
+    word_out = output_dir / "word_limit_results.jsonl"
+    with open(word_out, "w") as f:
         for r in word_results:
             f.write(json.dumps(r) + "\n")
+    log_status(f"[4/5: Word Limit Evaluation] Wrote {len(word_results)} records to {word_out}")
 
     if word_skipped:
-        with open(output_dir / "word_limit_skipped.jsonl", "w") as f:
+        skip_out = output_dir / "word_limit_skipped.jsonl"
+        with open(skip_out, "w") as f:
             for s in word_skipped:
                 f.write(json.dumps(s) + "\n")
+        log_status(f"[4/5: Word Limit Evaluation] Wrote {len(word_skipped)} skipped records to {skip_out}")
 
-    # Aggregate metrics
+    # Stage 5: Aggregate metrics and save summary
+    log_status("[5/5: Saving Results] Aggregating summary metrics...")
     summary = {
         "run_name": args.name,
         "adapter": str(args.adapter),
@@ -424,11 +540,15 @@ def main():
     if word_skipped:
         summary["word_limit_skipped_reasons"] = [s["reason"] for s in word_skipped]
 
-    with open(output_dir / "summary.json", "w") as f:
+    summary_file = output_dir / "summary.json"
+    with open(summary_file, "w") as f:
         json.dump(summary, f, indent=2)
 
-    print("\n--- Summary ---")
-    print(json.dumps(summary, indent=2))
+    log_status(f"[5/5: Saving Results] Saved summary JSON to {summary_file}")
+    log_status(f"=== Completed Task 1 Evaluation for '{args.name}' ===")
+
+    print("\n--- Summary ---", flush=True)
+    print(json.dumps(summary, indent=2), flush=True)
 
 
 if __name__ == "__main__":
